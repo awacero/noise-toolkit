@@ -261,7 +261,7 @@ if not do_plot:
 
 from_file_only = utils_lib.param(param, 'fromFileOnly').fromFileOnly
 request_client = utils_lib.get_param(args, 'client', utils_lib.param(param, 'requestClient').requestClient, usage)
-if request_client not in ('FILES', 'FDSN'):
+if request_client not in ('FILES', 'FDSN','FDSN_SC3'):
     usage()
     code = msg_lib.error(f'Invalid request client "{request_client}"', 3)
     sys.exit(code)
@@ -278,8 +278,8 @@ if internet:
 iris_client = None
 client = None
 user = None
-password = None
-if internet:
+assword = None
+if internet and request_client=='FDSN':
     # If user and password parameters are provided, use them
     # R 0.8.1 support for restricted data
     iris_client = IrisClient(user_agent=utils_lib.param(param, 'userAgent').userAgent)
@@ -294,6 +294,14 @@ if internet:
         msg_lib.info(f'accessing logon client as {user}')
         client = Client(user_agent=utils_lib.param(param, 'userAgent').userAgent, user=user, password=password)
     response_directory = None
+elif internet and request_client=='FDSN_SC3':
+    fdsn_server='192.168.1.35'
+    fdsn_port = 8080
+    print("OK Connect to sc3")
+    client=Client("http://%s:%s" %(fdsn_server,fdsn_port))
+
+    #sys.exit(0)
+
 else:
     msg_lib.info('[INFO] data and metadata from files')
     response_directory = utils_lib.param(param, 'respDirectory').respDirectory
@@ -405,7 +413,7 @@ psd_db_directory = utils_lib.mkdir(utils_lib.param(param, 'psdDbDirectory').psdD
 data_directory = utils_lib.mkdir(utils_lib.param(param, 'dataDirectory').dataDirectory)
 if request_client == 'FILES':
     cat = {'Files': {'bulk': utils_lib.param(param, 'fileTag').fileTag}}
-else:
+elif request_client == 'FDSN':
     # Initiate Fedcatalog request for data.
     request_query = utils_lib.get_fedcatalog_url(request_network, request_station, request_location,
                                                  request_channel, request_start_date_time,
@@ -415,6 +423,19 @@ else:
     cat = ts_lib.get_fedcatalog_station(fedcatalog_url, request_start_date_time,
                                         request_end_date_time, shared.chunk_length, chunk_count=shared.chunk_count)
 
+elif request_client == "FDSN_SC3":
+    print("Request data to FDSN_SC3")
+    request_query = utils_lib.get_fedcatalog_url(request_network, request_station, request_location,
+                                                 request_channel, request_start_date_time,
+                                                  request_end_date_time)
+
+
+    fedcatalog_url = f'{shared.fedcatalog_url}{request_query}'
+    cat = ts_lib.get_fedcatalog_station(fedcatalog_url, request_start_date_time,
+                                         request_end_date_time, shared.chunk_length, chunk_count=shared.chunk_count)
+    cat['IRISDMC_0']['url']='http://192.168.1.35:8080'
+    cat['IRISDMC_0']['dataselect_service']='http://192.168.1.35:8080/fdsnws/dataselect/1/'
+    print(cat)
 # Production label.
 production_date = datetime.datetime.utcnow().replace(microsecond=0).isoformat()
 production_label = f'{shared.production_label}'
@@ -424,7 +445,10 @@ production_label = f'{production_label}\ndoi:{shared.ntk_doi}'
 
 # Get data from each Data Center.
 stream = None
+
+
 for _key in cat:
+    
     st = None
 
     if verbose:
@@ -443,6 +467,7 @@ for _key in cat:
 
         # Set the client up for this data center.
         try:
+            print("LLEGA")
             client = Client(ts_lib.get_service_url(cat, _key))
             st = client.get_waveforms_bulk(cat[_key]['bulk'], attach_response=True)
         except Exception as ex:
